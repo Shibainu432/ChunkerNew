@@ -2,50 +2,48 @@ let api = {
     connection: undefined,
     replyHandlers: {},
     connect: function (connectHandler) {
-        let handlers = {};
+        let self = this;
+        
+        // 1. Point to your Render Backend with the /ws path
+        let backendUrl = 'wss://chunker-2.onrender.com/ws';
+        console.log("Attempting to connect to: " + backendUrl);
 
-        // Connection open handler
-        handlers.onopen = function () {
+        // 2. Create a standard Web Browser connection
+        let socket = new WebSocket(backendUrl);
+
+        socket.onopen = function () {
+            console.log("WebSocket connected successfully!");
+            self.connection = socket; 
             connectHandler();
         };
 
-        // Connection close handler
-        handlers.onclose = function (e) {
-            api.connection = undefined;
-            if (e.code === 1000) return; // Don't show error, as it was completed cleanly (and successful!)
-            if (e.code === 200) {
-                // Connection closed intentionally (eg. inactive)
-            } else {
-                // Connection closed for other reason, should reconnect?
-            }
+        socket.onclose = function (e) {
+            console.log("WebSocket closed. Code:", e.code);
+            self.connection = undefined;
             connectHandler(e.code);
         };
 
-        // Connection message handler
-        handlers.onmessage = function (e) {
+        socket.onmessage = function (e) {
             let msg = JSON.parse(e.data);
             let requestId = msg.requestId;
-            if (api.replyHandlers[requestId] === undefined) {
-                console.warn("No reply handler found: ", msg);
-            } else {
-                let handler = api.replyHandlers[requestId];
-
-                // Check if handler needs removing
+            
+            if (self.replyHandlers[requestId]) {
+                let handler = self.replyHandlers[requestId];
                 if (msg.continue === undefined || msg.continue === false) {
-                    // Remove as it's done
-                    delete api.replyHandlers[requestId];
+                    delete self.replyHandlers[requestId];
                 }
-
-                // Call handler
                 handler(msg);
             }
         };
 
-        // Set connection
-        this.connection = window.chunker.connect(handlers);
+        socket.onerror = function (error) {
+            console.error("WebSocket Error details: ", error);
+        };
     },
     send: function (obj, replyHandler) {
-        obj.requestId = crypto.randomUUID();// Generate random id
+        // Use a simpler ID generator if crypto.randomUUID fails in some browsers
+        obj.requestId = Math.random().toString(36).substring(2, 15);
+        
         if (this.connection !== undefined) {
             this.replyHandlers[obj.requestId] = replyHandler;
             this.connection.send(JSON.stringify(obj));
